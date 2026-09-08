@@ -29,5 +29,7 @@ typedef struct {
     float *intensities;                     // 光谱数据（动态分配）
 }tf_save_msg_t;
 
+tf_save_msg_t save_a;
+tf_save_msg_t save_b;
 
 #endif // SDSPI_H
