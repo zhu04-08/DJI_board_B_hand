@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "esp_log.h"
 #include "boardA.h"
@@ -8,11 +9,11 @@ static boardB_state B_state = {
     .b_fw_ver = 0x01,
     .b_ready = 2,               // 默认故障
     .actual_capture = 0,        // 默认未采集
-    .err_code = 0,              //默认无故障
-    .storage_free_pct = 100,     // 默认剩余 100% 空间
-    .frame_count = 0,           //默认已采集帧数为0
-    .session_id = 0,            //默认无任务
-    .safe_power_off = 0,        //默认不可断电
+    .err_code = 0,              // 默认无故障
+    .storage_free_pct = 100,    // 默认剩余 100% 空间
+    .frame_count = 0,           // 默认已采集帧数为0
+    .session_id = 0,            // 默认无任务
+    .safe_power_off = 0,        // 默认不可断电
     .last_rx_cmd = 0xFF,
     .last_rx_seq = 0xFF
 };
@@ -67,44 +68,46 @@ void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
     }
     if (cmd == 0x01){
         if(payload_buf[29] & 0x01 == 0x01){
-            B_state.latitude = payload_buf[0] | (payload_buf[1] >> 8)
-                        | (payload_buf[2] >> 16) | (payload_buf[3] >> 24);
-            B_state.longitude = payload_buf[4] | (payload_buf[5] >> 8)
-                        | (payload_buf[6] >> 16) | (payload_buf[7] >>24);
+            B_state.latitude = payload_buf[0] | ((int32_t)payload_buf[1] << 8)
+                        | ((int32_t)payload_buf[2] << 16) | ((int32_t)payload_buf[3] << 24);
+            B_state.longitude = payload_buf[4] | ((int32_t)payload_buf[5] << 8)
+                        | ((int32_t)payload_buf[6] << 16) | ((int32_t)payload_buf[7] << 24);
         }
         if (payload_buf[29] & 0x02 == 0x02){
-            B_state.alt_rel = payload_buf[8] | (payload_buf[9] >> 8)
-                        | (payload_buf[10] >> 16) | (payload_buf[11] >>24);
+            B_state.alt_rel = payload_buf[8] | ((int32_t)payload_buf[9] << 8)
+                        | ((int32_t)payload_buf[10] << 16) | ((int32_t)payload_buf[11] << 24);
         }
         if (payload_buf[29] & 0x04 == 0x04){
-            B_state.utc_sec = payload_buf[12] | (payload_buf[13] >> 8)
-                        | (payload_buf[14] >> 16) | (payload_buf[15] >>24);
+            B_state.utc_sec = payload_buf[12] | ((int32_t)payload_buf[13] << 8)
+                        | ((int32_t)payload_buf[14] << 16) | ((int32_t)payload_buf[15] << 24);
         }
     }
     if (cmd == 0x10){
-        B_state.session_id = payload_buf[2] | (payload_buf[3] >> 8)
-                        | (payload_buf[4] >> 16) | (payload_buf[5] >>24);
+        SC16IS752_uart_flag = true;
+        B_state.session_id = payload_buf[2] | ((int32_t)payload_buf[3] << 8)
+                        | ((int32_t)payload_buf[4] << 16) | ((int32_t)payload_buf[5] << 24);
         tx_buf[2] = 0x03;
         tx_buf[3] = 0x90;
         tx_buf[4] = seq;
         tx_buf[5] = cmd;
         tx_buf[6] = seq;
         tx_buf[7] = B_state.start_result;
-        tx_buf[8] = crc16_ccitt(tx_buf[2],6) & 0xFF;
-        tx_buf[9] = (crc16_ccitt(tx_buf[2],6) >> 8) & 0xFF;
+        tx_buf[8] = crc16_ccitt(&tx_buf[2],6) & 0xFF;
+        tx_buf[9] = (crc16_ccitt(&tx_buf[2],6) >> 8) & 0xFF;
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,10);
     }
     if (cmd == 0x11){
-        B_state.session_id = payload_buf[2] | (payload_buf[3] >> 8)
-                        | (payload_buf[4] >> 16) | (payload_buf[5] >>24);
+        SC16IS752_uart_flag = false;
+        B_state.session_id = payload_buf[2] | ((int32_t)payload_buf[3] << 8)
+                        | ((int32_t)payload_buf[4] << 16) | ((int32_t)payload_buf[5] << 24);
         tx_buf[2] = 0x03;
         tx_buf[3] = 0x90;
         tx_buf[4] = seq;
         tx_buf[5] = cmd;
         tx_buf[6] = seq;
         tx_buf[7] = B_state.stop_result;
-        tx_buf[8] = crc16_ccitt(tx_buf[2],6) & 0xFF;
-        tx_buf[9] = (crc16_ccitt(tx_buf[2],6) >> 8) & 0xFF;
+        tx_buf[8] = crc16_ccitt(&tx_buf[2],6) & 0xFF;
+        tx_buf[9] = (crc16_ccitt(&tx_buf[2],6) >> 8) & 0xFF;
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,10);
     }
     if (cmd == 0x30){
@@ -114,8 +117,8 @@ void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
         tx_buf[5] = cmd;
         tx_buf[6] = seq;
         tx_buf[7] = B_state.power_result;
-        tx_buf[8] = crc16_ccitt(tx_buf[2],6) & 0xFF;
-        tx_buf[9] = (crc16_ccitt(tx_buf[2],6) >> 8) & 0xFF;
+        tx_buf[8] = crc16_ccitt(&tx_buf[2],6) & 0xFF;
+        tx_buf[9] = (crc16_ccitt(&tx_buf[2],6) >> 8) & 0xFF;
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,10);
     }
 }

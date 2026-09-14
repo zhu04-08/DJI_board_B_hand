@@ -2,7 +2,12 @@
 #define MAIN_SC16IS752_H
 
 #include <stdint.h>
-#include <driver/spi_master.h>
+#include <stdbool.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/queue.h"
+#include "driver/spi_master.h"
+#include "driver/gpio.h"
 
 #define SC16IS752_PIN_SCLK  12
 #define SC16IS752_PIN_MOSI  11
@@ -58,6 +63,13 @@
 #define SC16IS752_INT_THR       (0x02)
 #define SC16IS752_INT_RHR       (0x01)
 
+/* ================= 帧协议常量 ================= */
+#define FRAME_HDR1      0xCC
+#define FRAME_HDR2      0x81
+#define FRAME_TAIL1     0x0D
+#define FRAME_TAIL2     0x0A
+#define FRAME_MIN_LEN   9 
+#define FRAME_MAX_LEN   2048
 
 typedef struct {
     uint8_t address_sspin; // SPI CS PIN 
@@ -66,17 +78,40 @@ typedef struct {
     uint8_t peek_flag; // 预读标志位
     spi_device_handle_t spi_device_handle; // SPI device handle
 }SC16IS752_t;
-SC16IS752_t dev;
+extern SC16IS752_t dev;
 
 extern const uint8_t cmd_wavelength[];
 extern const uint8_t cmd_continue_spectrum[];
 extern const uint8_t cmd_stop_spectrum[];
 extern uint16_t wavelength_start[2];//0->A通道，1->B通道
 extern uint16_t wavelength_end[2];
-extern uint8_t rx_buf_a[4096];
-extern uint8_t rx_buf_b[4096];
-extern int rx_head_a;
-extern int rx_head_b;
+
+typedef enum {
+    RXS_SEARCH = 0,   // ★ 必须是 0！memset 归零后自动进入此状态
+    RXS_LEN,
+    RXS_BODY
+} rx_state_t;
+
+typedef struct {
+    rx_state_t state;                  // 当前状态
+    uint8_t    hdr_prev;               // SEARCH 态：上一字节是否是 0xCC
+    uint32_t   total_len;              // 从长度字段解析出的总长
+    uint32_t   received;               // 已收字节数
+    uint8_t    buf[2048];     // 帧缓冲
+} rx_ctx_t;
+
+/* ================= 完整帧（投递到队列用） ================= */
+typedef struct {
+    uint8_t  channel;                  // 0 = A, 1 = B
+    uint16_t len;                      // 总长
+    uint8_t  data[2048];      // 原始帧内容（含头尾）
+} rx_frame_t;
+
+/* ================= 运行时状态 ================= */
+extern rx_ctx_t      rx_a;             // 通道 A 解析上下文
+extern rx_ctx_t      rx_b;             // 通道 B 解析上下文
+extern QueueHandle_t frame_q = NULL;
+
 
 uint8_t SC16IS752_ReadRegister(SC16IS752_t *dev,uint8_t channel, uint8_t reg_addr);
 void SC16IS752_WriteRegister(SC16IS752_t *dev, uint8_t channel, uint8_t reg_addr, uint8_t val);
@@ -88,6 +123,8 @@ void SC16IS752_init(SC16IS752_t *dev, int16_t reset_pin);
 int SC16IS752_read_bytes(SC16IS752_t *dev, uint8_t channel, uint8_t *buf, int len);
 void SC16IS752_write(SC16IS752_t *dev, uint8_t channel, uint8_t val);
 int SC16IS752_available(SC16IS752_t *dev, uint8_t channel);
+void SC16IS752_irq_bind_task(TaskHandle_t task);
+void SC16IS752_irq_enable(bool en);
 
 
 #endif // MAIN_SC16IS752_H

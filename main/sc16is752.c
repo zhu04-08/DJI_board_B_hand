@@ -11,6 +11,12 @@
 #define TAG "SC16IS752"
 #define SPI_FREQ 4000000 // 4 MHz
 
+SC16IS752_t dev;
+
+static TaskHandle_t rx_task_handle = NULL;
+static volatile bool irq_armed = false;
+static bool irq_isr_installed = false;
+
 //光谱采集任务定义变量
 const uint8_t cmd_wavelength[] = {
     0xCC, 0x01, 0x09, 0x00, 0x00, 0x0F, 0xE5, 0x0D, 0x0A
@@ -119,9 +125,9 @@ void SC16IS752_FIFOEnable(SC16IS752_t *dev, uint8_t channel, uint8_t fifo_enable
 {
     uint8_t temp_fcr = SC16IS752_ReadRegister(dev, channel, SC16IS752_REG_FCR);
     if (fifo_enable == 0) {
-        temp_fcr &= 0xFE; // Enable FIFO
+        temp_fcr &= 0xFE; // disable FIFO
     } else {
-        temp_fcr |= 0x01; // Disable FIFO
+        temp_fcr |= 0x01; // enable FIFO
     }
     SC16IS752_WriteRegister(dev, channel, SC16IS752_REG_FCR, temp_fcr);
 }
@@ -166,6 +172,14 @@ void SC16IS752_SetLine(SC16IS752_t *dev, uint8_t channel, uint8_t data_length, u
     SC16IS752_WriteRegister(dev, channel, SC16IS752_REG_LCR, temp_lcr);
 }
 
+static void IRAM_ATTR SC16IS752_IRQ_ISR(void *arg)
+{
+    BaseType_t hp = pdFALSE;
+    if(rx_task_handle && irq_armed){
+        vTaskNotifyGiveFromISR(rx_task_handle,&hp);
+        portYIELD_FROM_ISR(hp);
+    }
+}
 void SC16IS752_init(SC16IS752_t *dev, int16_t reset_pin)
 {
     dev->address_sspin = SC16IS752_PIN_CS;
@@ -204,6 +218,24 @@ void SC16IS752_init(SC16IS752_t *dev, int16_t reset_pin)
     SC16IS752_FIFOEnable(dev, SC16IS752_CHANNEL_B, 1);
     SC16IS752_SetBaudrate(dev, SC16IS752_CHANNEL_A, SC16IS752_UART_BAUDRATE);
     SC16IS752_SetBaudrate(dev, SC16IS752_CHANNEL_B, SC16IS752_UART_BAUDRATE);
+    //配置IRQ引脚
+    gpio_config_t irq_cfg = {
+        .pin_bit_mask = (1ULL << SC16IS752_PIN_IRQ),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&irq_cfg));
+    if(!irq_isr_installed){
+        esp_err_t err = gpio_install_isr_service(0);
+        if(err == ESP_OK || err == ESP_ERR_INVALID_STATE){
+            irq_isr_installed = true;
+        }else{
+            ESP_ERROR_CHECK(err);
+        }
+    }
+    ESP_ERROR_CHECK(gpio_isr_handler_add(SC16IS752_PIN_IRQ,SC16IS752_IRQ_ISR,NULL));
     //设置串口帧形式
     SC16IS752_SetLine(dev, SC16IS752_CHANNEL_A, 8, 0, 1);
     SC16IS752_SetLine(dev, SC16IS752_CHANNEL_B, 8, 0, 1);
@@ -248,4 +280,13 @@ void SC16IS752_write(SC16IS752_t *dev, uint8_t channel, uint8_t val)
 int SC16IS752_available(SC16IS752_t *dev, uint8_t channel)
 {
     return SC16IS752_ReadRegister(dev, channel, SC16IS752_REG_RXLVL);
+}
+void SC16IS752_irq_bind_task(TaskHandle_t task)
+{
+    rx_task_handle = task;
+}
+
+void SC16IS752_irq_enable(bool en)
+{
+    irq_armed = en;
 }

@@ -2,6 +2,8 @@
 #define BOARD_A_H
 
 #include <stdint.h>
+
+#include "esp_err.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
 
@@ -48,6 +50,7 @@ typedef struct {
     uint8_t  last_rx_seq;
 }boardB_state;
 
+extern bool SC16IS752_uart_flag;
 extern boardB_state B_state;
 
 static uint16_t crc16_ccitt(const uint8_t *data, uint16_t len);
