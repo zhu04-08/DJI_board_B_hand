@@ -1,0 +1,97 @@
+CONNECTED(000001C0)
+---
+Certificate chain
+ 0 s:CN=*.torchbearer.tech, O=torchbearer.tech
+   i:CN=*.torchbearer.tech, O=torchbearer.tech
+   a:PKEY: RSA, 2048 (bit); sigalg: sha256WithRSAEncryption
+   v:NotBefore: Sep  9 11:16:58 2021 GMT; NotAfter: Aug 16 11:16:58 2121 GMT
+-----BEGIN CERTIFICATE-----
+MIIDcjCCAlqgAwIBAgIUOI+tk1hSgHVstT1wGd0tiLbxBFkwDQYJKoZIhvcNAQEL
+BQAwODEbMBkGA1UEAwwSKi50b3JjaGJlYXJlci50ZWNoMRkwFwYDVQQKDBB0b3Jj
+aGJlYXJlci50ZWNoMCAXDTIxMDkwOTExMTY1OFoYDzIxMjEwODE2MTExNjU4WjA4
+MRswGQYDVQQDDBIqLnRvcmNoYmVhcmVyLnRlY2gxGTAXBgNVBAoMEHRvcmNoYmVh
+cmVyLnRlY2gwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQD4eTmNFpTq
+gqkXN6q/UeN2slin1aEKxwTgP7RB9EJ36uJ5cj9OgIESLSbo+/mLuO0VnaujKFy9
+xRW02iayxPfWU2iIChWeblBlL4akt6xQ9sr7nM7nwM1DVtgbuoy1KpwA71CHn5Qg
+Lmf44vRQ9AnMkCKF6yKU4XG8qGJDY8knz18jJbOB+EoIFXGfoSDROAV/wPQleY12
+fYSm2SR8iJ2lmKmfAxIa/nm0NxOjyh1IycO15FBfoIQRH00l3WsYvqs9mEKlD63R
+Bhnyks4+f8snxQeFpJLlN/9FnDXcH6zJFb+6vEhAGtaKmcVZl81q7wOWDboMPRgI
+fBEyt48ylQHFAgMBAAGjcjBwMB0GA1UdDgQWBBSaUMQRjg0OI+GwqYRr/kzGxN24
+yzAfBgNVHSMEGDAWgBSaUMQRjg0OI+GwqYRr/kzGxN24yzAPBgNVHRMBAf8EBTAD
+AQH/MB0GA1UdEQQWMBSCEioudG9yY2hiZWFyZXIudGVjaDANBgkqhkiG9w0BAQsF
+AAOCAQEAYF17LYglZD4e4a3+Vbwuqthl0WG8/4p9Q0rekhFOHpHmb0ZfAnfIWFX1
+C1X/zC9j/Ss7nggT+ttbNyrByTUCGOAzW7Vwbe3yIjT7Q7NdCdBcEiLVstE+qd3U
+Yt6VP25QY1VS+q0V1pM/rj5eHyTMOf7G/6oCvt8oHrIKZ62nU22wofgFaZA7YPjC
+exa9bUKy0asUx3QK+SOFQhGBpr+RdRE5yZZcY4fha631VmQWcIoHlBuQdvxBbFG2
+/xZceBblq48zbOcnhIp4yxc485cp+f1CyP8mEHHB84jS6t1sao992bznA8g3NvfP
+rRxeuLwRDvXvHY6ShMOOXIbTbcn6Cg==
+-----END CERTIFICATE-----
+---
+Server certificate
+subject=CN=*.torchbearer.tech, O=torchbearer.tech
+issuer=CN=*.torchbearer.tech, O=torchbearer.tech
+---
+No client certificate CA names sent
+Peer signing digest: SHA256
+Peer signature type: rsa_pss_rsae_sha256
+Peer Temp Key: X25519, 253 bits
+---
+SSL handshake has read 1446 bytes and written 1643 bytes
+Verification error: self-signed certificate
+---
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+Protocol: TLSv1.3
+Server public key is 2048 bit
+This TLS version forbids renegotiation.
+Compression: NONE
+Expansion: NONE
+No ALPN negotiated
+Early data was not sent
+Verify return code: 18 (self-signed certificate)
+---
+---
+Post-Handshake New Session Ticket arrived:
+SSL-Session:
+    Protocol  : TLSv1.3
+    Cipher    : TLS_AES_256_GCM_SHA384
+    Session-ID: 481CFAF58727F8CD942A2C01BCD9164E65967DD51A637962C2A575A16131C58F
+    Session-ID-ctx: 
+    Resumption PSK: 3FA0C7CFA11CA4DCBEC1D12494A195E64D62295D023D9EA5DB528FA1E2DE0CD5BC70863153A0F32B083819C838628013
+    PSK identity: None
+    PSK identity hint: None
+    SRP username: None
+    TLS session ticket lifetime hint: 86400 (seconds)
+    TLS session ticket:
+    0000 - 86 26 ac d7 f6 82 c6 a0-97 87 83 e0 58 3c 4d 38   .&..........X<M8
+    0010 - 06 26 98 29 62 2e 04 40-d1 a2 b3 87 d3 38 18 d9   .&.)b..@.....8..
+
+    Start Time: 1789369931
+    Timeout   : 7200 (sec)
+    Verify return code: 18 (self-signed certificate)
+    Extended master secret: no
+    Max Early Data: 0
+---
+read R BLOCK
+---
+Post-Handshake New Session Ticket arrived:
+SSL-Session:
+    Protocol  : TLSv1.3
+    Cipher    : TLS_AES_256_GCM_SHA384
+    Session-ID: D9E797F852063D525CDE4BC6DB86C5A1A53DCFACAB8DB2494CC24926D600A6B7
+    Session-ID-ctx: 
+    Resumption PSK: 1D2043D6856F150F52C85F2B73B7BDD5DEBA0A75DE8EDF457EA1E4926F8AB9F99A601F02920AB37786492567D01912B0
+    PSK identity: None
+    PSK identity hint: None
+    SRP username: None
+    TLS session ticket lifetime hint: 86400 (seconds)
+    TLS session ticket:
+    0000 - 5f 34 20 6f cf 47 2c fe-22 c4 8c cd 4a 2d 1d 37   _4 o.G,."...J-.7
+    0010 - b0 f3 b0 ee 2f 46 71 fc-2a da 74 dc c8 9c 0e 2e   ..../Fq.*.t.....
+
+    Start Time: 1789369931
+    Timeout   : 7200 (sec)
+    Verify return code: 18 (self-signed certificate)
+    Extended master secret: no
+    Max Early Data: 0
+---
+read R BLOCK

@@ -122,8 +122,8 @@ esp_err_t csv_init(void)
         return ESP_FAIL;
     }
 
-    g_fp_a = fopen("/sdcard/A.csv", "w");
-    g_fp_b = fopen("/sdcard/B.csv", "w");
+    g_fp_a = fopen("/sdcard/A.csv", "a");
+    g_fp_b = fopen("/sdcard/B.csv", "a");
 
     if (!g_fp_a || !g_fp_b) {
         ESP_LOGE(TAG, "fopen csv failed");
@@ -133,8 +133,15 @@ esp_err_t csv_init(void)
         return ESP_FAIL;
     }
 
-    csv_write_header(g_fp_a, wavelength_start[0], wavelength_end[0]);
-    csv_write_header(g_fp_b, wavelength_start[1], wavelength_end[1]);
+    //文件为空才写表头
+    fseek(g_fp_a, 0, SEEK_END);
+    if(ftell(g_fp_a) == 0){
+        csv_write_header(g_fp_a, wavelength_start[0], wavelength_end[0]);
+    }
+    fseek(g_fp_b, 0, SEEK_END);
+    if(ftell(g_fp_b) == 0){
+        csv_write_header(g_fp_b, wavelength_start[1], wavelength_end[1]);
+    }
 
     g_fc_a = 0;
     g_fc_b = 0;
@@ -146,11 +153,7 @@ esp_err_t csv_init(void)
 }
 
 /* 写一行 CSV */
-void csv_write_row(FILE *fp, uint8_t channel,
-                          uint32_t frame_no,
-                          const tf_save_msg_t *msg,
-                          const uint16_t 
-                          *spec, uint16_t npts)
+void csv_write_row(FILE *fp, uint8_t channel,uint32_t frame_no,const tf_save_msg_t *msg,const uint16_t *spec, uint16_t npts)
 {
     /* ---- 固定字段 ---- */
     fprintf(fp, "%c,%" PRIu32 ",%" PRIu32 ","
@@ -159,8 +162,8 @@ void csv_write_row(FILE *fp, uint8_t channel,
             (channel == 0) ? 'A' : 'B',
             frame_no,
             B_state.utc_sec,             // 来自 B_state
-            B_state.latitude,            // 来自 B_state
-            B_state.longitude,           // 来自 B_state
+            (double)B_state.latitude,            // 来自 B_state
+            (double)B_state.longitude,           // 来自 B_state
             (double)B_state.alt_rel,     // 来自 B_state
             msg->exposure_status,
             msg->exposure_time_us);
@@ -190,10 +193,7 @@ void csv_write_row(FILE *fp, uint8_t channel,
     }
 }
 
-bool parse_spectrum_frame(const rx_frame_t *f,
-                          tf_save_msg_t     *msg,
-                          uint16_t          *spec_buf,
-                          uint16_t           spec_buf_max)
+bool parse_spectrum_frame(const rx_frame_t *f,tf_save_msg_t *msg,uint16_t *spec_buf,uint16_t spec_buf_max)
 {
     if (f->len < 9) return false;
 

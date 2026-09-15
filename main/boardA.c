@@ -4,7 +4,7 @@
 #include "esp_log.h"
 #include "boardA.h"
 
-static boardB_state B_state = {
+boardB_state B_state = {
     .proto_ver = 0x01,
     .b_fw_ver = 0x01,
     .b_ready = 2,               // 默认故障
@@ -19,7 +19,7 @@ static boardB_state B_state = {
 };
 
 //CRC16算法
-static uint16_t crc16_ccitt(const uint8_t *data, uint16_t len)
+uint16_t crc16_ccitt(const uint8_t *data, uint16_t len)
 {
     uint16_t crc = 0xFFFF;
     while (len--) {
@@ -50,9 +50,27 @@ void boardA_init(void)
 void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
 {
     uint8_t tx_buf[64];
+    tx_buf[0] = 0xAA;tx_buf[1] = 0x55;
+    //帧级去重：同 CMD 同 SEQ 视为重发
+    if (cmd == B_state.last_rx_cmd && seq == B_state.last_rx_seq) {
+        uint8_t tx[10];
+        tx[0] = 0xAA; tx[1] = 0x55;
+        tx[2] = 0x03;   
+        tx[3] = 0x90;     
+        tx[4] = seq;
+        tx[5] = cmd;  
+        tx[6] = seq;   
+        tx[7] = 0;       
+        uint16_t c = crc16_ccitt(&tx[2], 6);
+        tx[8] = c & 0xFF;
+        tx[9] = (c >> 8) & 0xFF;
+        xSemaphoreTake(uart1_tx_mutex, portMAX_DELAY);
+        uart_write_bytes(BOARD_A_UART_PORT, tx, 10);
+        xSemaphoreGive(uart1_tx_mutex);
+        return;             // ★ 直接返回，不往下执行
+    }
     B_state.last_rx_seq = seq;
     B_state.last_rx_cmd = cmd;
-    tx_buf[0] = 0xAA;tx_buf[1] = 0x55;
     if (cmd ==  0x20){
         tx_buf[2] = 0x05;
         tx_buf[3] = 0xA0;
@@ -62,22 +80,24 @@ void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
         tx_buf[7] = B_state.b_fw_ver & 0xFF;
         tx_buf[8] = (B_state.b_fw_ver >> 8) & 0xFF;
         tx_buf[9] = seq;
-        tx_buf[10] = crc16_ccitt(tx_buf[2],8) & 0xFF;
-        tx_buf[11] = (crc16_ccitt(tx_buf[2],8) >> 8) & 0xFF;
+        tx_buf[10] = crc16_ccitt(&tx_buf[2],8) & 0xFF;
+        tx_buf[11] = (crc16_ccitt(&tx_buf[2],8) >> 8) & 0xFF;
+        xSemaphoreTake(uart1_tx_mutex, portMAX_DELAY);
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,12);
+        xSemaphoreGive(uart1_tx_mutex);
     }
     if (cmd == 0x01){
-        if(payload_buf[29] & 0x01 == 0x01){
+        if ((payload_buf[29] & 0x01) == 0x01){
             B_state.latitude = payload_buf[0] | ((int32_t)payload_buf[1] << 8)
                         | ((int32_t)payload_buf[2] << 16) | ((int32_t)payload_buf[3] << 24);
             B_state.longitude = payload_buf[4] | ((int32_t)payload_buf[5] << 8)
                         | ((int32_t)payload_buf[6] << 16) | ((int32_t)payload_buf[7] << 24);
         }
-        if (payload_buf[29] & 0x02 == 0x02){
+        if ((payload_buf[29] & 0x02) == 0x02){
             B_state.alt_rel = payload_buf[8] | ((int32_t)payload_buf[9] << 8)
                         | ((int32_t)payload_buf[10] << 16) | ((int32_t)payload_buf[11] << 24);
         }
-        if (payload_buf[29] & 0x04 == 0x04){
+        if ((payload_buf[29] & 0x04) == 0x04){
             B_state.utc_sec = payload_buf[12] | ((int32_t)payload_buf[13] << 8)
                         | ((int32_t)payload_buf[14] << 16) | ((int32_t)payload_buf[15] << 24);
         }
@@ -94,12 +114,14 @@ void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
         tx_buf[7] = B_state.start_result;
         tx_buf[8] = crc16_ccitt(&tx_buf[2],6) & 0xFF;
         tx_buf[9] = (crc16_ccitt(&tx_buf[2],6) >> 8) & 0xFF;
+        xSemaphoreTake(uart1_tx_mutex, portMAX_DELAY);
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,10);
+        xSemaphoreGive(uart1_tx_mutex);
     }
     if (cmd == 0x11){
         SC16IS752_uart_flag = false;
-        B_state.session_id = payload_buf[2] | ((int32_t)payload_buf[3] << 8)
-                        | ((int32_t)payload_buf[4] << 16) | ((int32_t)payload_buf[5] << 24);
+        B_state.session_id = (uint32_t)payload_buf[2] | ((uint32_t)payload_buf[3] << 8)
+                        | ((uint32_t)payload_buf[4] << 16) | ((uint32_t)payload_buf[5] << 24);
         tx_buf[2] = 0x03;
         tx_buf[3] = 0x90;
         tx_buf[4] = seq;
@@ -108,9 +130,12 @@ void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
         tx_buf[7] = B_state.stop_result;
         tx_buf[8] = crc16_ccitt(&tx_buf[2],6) & 0xFF;
         tx_buf[9] = (crc16_ccitt(&tx_buf[2],6) >> 8) & 0xFF;
+        xSemaphoreTake(uart1_tx_mutex, portMAX_DELAY);
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,10);
+        xSemaphoreGive(uart1_tx_mutex);
     }
     if (cmd == 0x30){
+        g_stop_writing = true;
         tx_buf[2] = 0x03;
         tx_buf[3] = 0x90;
         tx_buf[4] = seq;
@@ -119,6 +144,84 @@ void boardA_cmd_process(uint8_t cmd, uint8_t seq, uint8_t *payload_buf)
         tx_buf[7] = B_state.power_result;
         tx_buf[8] = crc16_ccitt(&tx_buf[2],6) & 0xFF;
         tx_buf[9] = (crc16_ccitt(&tx_buf[2],6) >> 8) & 0xFF;
+        xSemaphoreTake(uart1_tx_mutex, portMAX_DELAY);
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,10);
+        xSemaphoreGive(uart1_tx_mutex);
+    }
+}
+
+void boardA_rx_feed(uint8_t b)
+{
+    static uint8_t        buf[BOARD_A_BUF_SIZE]; 
+    static ba_rx_state_t  state = BA_RX_WAIT_HDR1; 
+    static uint16_t       idx = 0;
+    static uint8_t        len = 0;
+
+    switch (state) {
+
+    case BA_RX_WAIT_HDR1:
+        if (b == BOARD_A_HDR1) state = BA_RX_WAIT_HDR2;
+        break;
+
+    case BA_RX_WAIT_HDR2:
+        if (b == BOARD_A_HDR2) {
+            idx   = 0;
+            state = BA_RX_READ_LEN;
+        } else if (b == BOARD_A_HDR1) {
+            state = BA_RX_WAIT_HDR2;
+        } else {
+            state = BA_RX_WAIT_HDR1;
+        }
+        break;
+
+    case BA_RX_READ_LEN:
+        buf[idx++] = b;
+        len = b;
+        if (len > BOARD_A_PAYLOAD_MAX) {         
+            state = BA_RX_WAIT_HDR1;                 
+            idx   = 0;
+        } else {
+            state = BA_RX_READ_CMD;
+        }
+        break;
+
+    case BA_RX_READ_CMD:
+        buf[idx++] = b;
+        state = BA_RX_READ_SEQ;
+        break;
+
+    case BA_RX_READ_SEQ:
+        buf[idx++] = b;
+        if (len == 0) state = BA_RX_READ_CRC1;
+        else          state = BA_RX_READ_PAYLOAD;
+        break;
+
+    case BA_RX_READ_PAYLOAD:
+        buf[idx++] = b;
+        if (idx == 3 + len) state = BA_RX_READ_CRC1;   
+        break;
+
+    case BA_RX_READ_CRC1:
+        buf[idx++] = b;
+        state = BA_RX_READ_CRC2;
+        break;
+
+    case BA_RX_READ_CRC2:
+        buf[idx++] = b;
+        {
+            uint16_t crc_calc = crc16_ccitt(&buf[BOARD_A_OFFSET_LEN],
+                                            BOARD_A_CRC_RANGE_LEN(len));
+            uint16_t crc_recv = buf[BOARD_A_CRC_OFFSET(len)]
+                              | (buf[BOARD_A_CRC_OFFSET(len) + 1] << 8);
+
+            if (crc_calc == crc_recv) {
+                boardA_cmd_process(buf[BOARD_A_OFFSET_CMD],
+                                   buf[BOARD_A_OFFSET_SEQ],
+                                   &buf[BOARD_A_OFFSET_PAYLOAD]);
+            }
+        }
+        state = BA_RX_WAIT_HDR1; 
+        idx   = 0;
+        break;
     }
 }

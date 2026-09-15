@@ -14,6 +14,7 @@
 SC16IS752_t dev;
 
 static TaskHandle_t rx_task_handle = NULL;
+QueueHandle_t frame_q = NULL;
 static volatile bool irq_armed = false;
 static bool irq_isr_installed = false;
 
@@ -239,6 +240,9 @@ void SC16IS752_init(SC16IS752_t *dev, int16_t reset_pin)
     //设置串口帧形式
     SC16IS752_SetLine(dev, SC16IS752_CHANNEL_A, 8, 0, 1);
     SC16IS752_SetLine(dev, SC16IS752_CHANNEL_B, 8, 0, 1);
+    //开启中断使能寄存器
+    SC16IS752_WriteRegister(dev, SC16IS752_CHANNEL_A, SC16IS752_REG_IER, 0x01);
+    SC16IS752_WriteRegister(dev, SC16IS752_CHANNEL_B, SC16IS752_REG_IER, 0x01);
 }
 
 

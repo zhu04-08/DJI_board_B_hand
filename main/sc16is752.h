@@ -69,7 +69,7 @@
 #define FRAME_TAIL1     0x0D
 #define FRAME_TAIL2     0x0A
 #define FRAME_MIN_LEN   9 
-#define FRAME_MAX_LEN   2048
+#define FRAME_MAX_LEN   2047
 
 typedef struct {
     uint8_t address_sspin; // SPI CS PIN 
@@ -110,7 +110,7 @@ typedef struct {
 /* ================= 运行时状态 ================= */
 extern rx_ctx_t      rx_a;             // 通道 A 解析上下文
 extern rx_ctx_t      rx_b;             // 通道 B 解析上下文
-extern QueueHandle_t frame_q = NULL;
+extern QueueHandle_t frame_q;
 
 
 uint8_t SC16IS752_ReadRegister(SC16IS752_t *dev,uint8_t channel, uint8_t reg_addr);

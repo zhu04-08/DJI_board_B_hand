@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/event_groups.h"
 #include "esp_log.h"
+#include "esp_vfs_fat.h"
 #include "driver/uart.h"
 #include "math.h"
 #include "time.h"
@@ -19,9 +21,14 @@
 
 bool SC16IS752_uart_flag = false;
 bool SC16IS752_init_flag = false;
-bool tf_init_flag = false;
+bool g_stop_writing = false;
+bool ml307_init_flag = false;
 tf_save_msg_t safe_msg_a;
 tf_save_msg_t safe_msg_b;
+SemaphoreHandle_t uart1_tx_mutex;
+
+//提前声明任务函数
+static void data_process_save_task(void *pvParameters);
 
 static void boardA_heartbeat_task(void *pvParameters)
 {
@@ -46,9 +53,11 @@ static void boardA_heartbeat_task(void *pvParameters)
         tx_buf[16] = (B_state.session_id >> 24) & 0xFF;
         tx_buf[17] = B_state.safe_power_off;
         tx_buf[18] = 0;
-        tx_buf[19] = crc16_ccitt(tx_buf[2],8) & 0xFF;
-        tx_buf[20] = (crc16_ccitt(tx_buf[2],8) >> 8) & 0xFF;
+        tx_buf[19] = crc16_ccitt(&tx_buf[2],17) & 0xFF;
+        tx_buf[20] = (crc16_ccitt(&tx_buf[2],17) >> 8) & 0xFF;
+        xSemaphoreTake(uart1_tx_mutex, portMAX_DELAY);
         uart_write_bytes(BOARD_A_UART_PORT,tx_buf,21);
+        xSemaphoreGive(uart1_tx_mutex);
         //1Hz间隔发送
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -56,94 +65,24 @@ static void boardA_heartbeat_task(void *pvParameters)
 
 static void boardA_interaction_task(void *pvParameters)
 {
-    uint8_t uart1_rx_buf[128];
-    uint8_t basic_buf[8];
-    uint8_t basic_idx = 0;
-    uint8_t payload_buf[64];
-    uint8_t payload_idx = 0;
-    uint8_t crc_buf[64];
-    uint16_t crc = 0;
-    while(1){
-        int uart1_rx_head = uart_read_bytes(BOARD_A_UART_PORT,uart1_rx_buf,128,pdMS_TO_TICKS(100));
-        int uart1_rx_tail = 0;
-        while (uart1_rx_head > uart1_rx_tail){
-            if(payload_idx != 0){
-                if(uart1_rx_head >= basic_buf[2] - payload_idx + 2){
-                    memcpy(&payload_buf[payload_idx],uart1_rx_buf,basic_buf[2] - payload_idx);
-                    memcpy(&crc_buf[3+payload_idx],uart1_rx_buf,basic_buf[2] - payload_idx);
-                    crc = uart1_rx_buf[basic_buf[2] - payload_idx + 1]
-                        |((uint16_t)uart1_rx_buf[basic_buf[2] - payload_idx + 2] << 8);
-                    uint16_t calc_crc = crc16_ccitt(crc_buf,basic_buf[2]+3);
-                    if(calc_crc == crc && (B_state.last_rx_cmd != basic_buf[3] || B_state.last_rx_seq != basic_buf[4])){
-                        //指令处理并应答
-                        boardA_cmd_process(basic_buf[3],basic_buf[4],payload_buf);
-                    }
-                    uart1_rx_tail = basic_buf[2] - payload_idx + 2;
-                    payload_idx = 0;
-                }else{
-                    memcpy(&payload_buf[payload_idx],uart1_rx_buf,uart1_rx_head);//payload_buf中包含了crc的内容，不影响处理payload处理
-                    memcpy(&crc_buf[3+payload_idx],uart1_rx_buf,uart1_rx_head);
-                    payload_idx += uart1_rx_head;
-                    uart1_rx_tail = uart1_rx_head;
-                }
-            }
-            if(basic_idx != 0){
-                if(uart1_rx_head >=5 - basic_idx){
-                    memcpy(&basic_buf,uart1_rx_buf,5-basic_idx);
-                    memcpy(&crc_buf,basic_buf[2],3);
-                    uart1_rx_tail = 5 -basic_idx;
-                    basic_idx = 0;
-                }else{
-                    memcpy(&basic_buf,uart1_rx_buf,5-basic_idx);
-                    uart1_rx_tail = uart1_rx_head;
-                    basic_idx += uart1_rx_head;
-                }
-            }
-            if (payload_idx == 0 && basic_idx == 0){
-                for(int i = uart1_rx_tail; i+1 < uart1_rx_head; i++){
-                    if(uart1_rx_buf[i] == 0xAA && uart1_rx_buf[i+1] == 0x55){
-                        if(i+5 < uart1_rx_head){
-                            memcpy(&basic_buf,uart1_rx_buf[i],5);
-                            memcpy(&crc_buf,basic_buf[2],3);
-                            uart1_rx_tail = i;
-                            break;
-                        }else{
-                            memcpy(&basic_buf,uart1_rx_buf[i],uart1_rx_head - i);
-                            basic_idx = uart1_rx_head - i;
-                            uart1_rx_tail = uart1_rx_head;
-                            break;
-                        }
-                    }
-                }
-                if (uart1_rx_buf[uart1_rx_tail] == 0xAA && uart1_rx_head >= uart1_rx_tail + basic_buf[2] + 6){
-                    memcpy(&payload_buf,&uart1_rx_buf[uart1_rx_tail+5],basic_buf[2]);
-                    memcpy(&crc_buf[3],&uart1_rx_buf[uart1_rx_tail+5],basic_buf[2]);
-                    crc = uart1_rx_buf[uart1_rx_tail + basic_buf[2]+5]
-                        |((uint16_t)uart1_rx_buf[uart1_rx_tail + basic_buf[2] + 6] << 8);
-                    uint16_t calc_crc = crc16_ccitt(crc_buf,basic_buf[2]+3);
-                    if(calc_crc == crc && (B_state.last_rx_cmd != basic_buf[3] || B_state.last_rx_seq != basic_buf[4])){
-                        //指令处理并应答
-                        boardA_cmd_process(basic_buf[3],basic_buf[4],payload_buf);
-                    }
-                }else{
-                    if (uart1_rx_buf[uart1_rx_tail] == 0xAA && uart1_rx_head > uart1_rx_tail +4){
-                        memcpy(payload_buf,&uart1_rx_buf[uart1_rx_tail+4],uart1_rx_head - uart1_rx_tail - 4);
-                        memcpy(basic_buf,&uart1_rx_buf[uart1_rx_tail],5);
-                        payload_idx = uart1_rx_head - uart1_rx_tail;
-                    }else{
-                        memcpy(basic_buf,&uart1_rx_buf[uart1_rx_tail],uart1_rx_head - uart1_rx_tail);
-                        basic_idx = uart1_rx_head - uart1_rx_tail;
-                    }
-                }
-            }
+    uint8_t buf[128];
+    while (1) {
+        int n = uart_read_bytes(BOARD_A_UART_PORT, buf, sizeof(buf),pdMS_TO_TICKS(100));
+        for (int i = 0; i < n; i++) {
+            boardA_rx_feed(buf[i]);
         }
     }
 }
 
 static void main_init(void)
 {
+    // 光谱帧队列：深度10，缓冲采集与处理的速度差
+    frame_q = xQueueCreate(10, sizeof(rx_frame_t));
+    // MQTT队列：深度1，覆盖式只存最新帧
+    mqtt_q = xQueueCreate(1, sizeof(mqtt_pkt_t));
     //板B应答初始化
     B_state.b_ready = 0; //板B状态设置为初始化
+    uart1_tx_mutex = xSemaphoreCreateMutex();
     boardA_init();
     tf_init();
     // SC16IS752初始化
@@ -196,10 +135,10 @@ static void main_init(void)
     } else{
         SC16IS752_init_flag = true;
     }
+    //tf卡存储初始化
     if (SC16IS752_init_flag && tf_init_flag) {
 
         if (csv_init() == ESP_OK) {
-
             xTaskCreate(data_process_save_task,   // 任务函数
                         "csv_save",               // 任务名
                         4096,                     // 栈大小
@@ -218,6 +157,7 @@ static void main_init(void)
                  SC16IS752_init_flag, tf_init_flag);
         B_state.b_ready = 2;
     }
+    //ml307_uart_init();//DTU透传不需要
 }
 
 //SC16IS752 串口轮询采集光谱数据
@@ -254,7 +194,6 @@ static void SC16IS752_data_get_task(void *pvParameters)
 
             for(int ch = 0;ch < 2;ch++){
                 rx_ctx_t *c = ctx_list[ch];
-                size_t n;
 
                 while(SC16IS752_available(&dev,ch_list[ch]) > 0){
                     int n = SC16IS752_read_bytes(&dev,ch_list[ch],tmp,sizeof(tmp));
@@ -312,7 +251,7 @@ static void SC16IS752_data_get_task(void *pvParameters)
                                     f.channel = (uint8_t)ch;
                                     f.len     = (uint16_t)c->total_len;
                                     memcpy(f.data, c->buf, c->total_len);
-                                    xQueueSend(frame_q, &f, 0);  // ★ 永不阻塞
+                                    xQueueSend(frame_q, &f, 0);  // RTOS队列投递
                                 }
                                 c->state    = RXS_SEARCH;
                                 c->hdr_prev = 0;
@@ -336,12 +275,18 @@ static void data_process_save_task(void *pvParameters)
         ESP_LOGE(TAG, "spec_buf malloc failed");
         vTaskDelete(NULL);
     }
-
+    uint32_t total_frames = 0;
     rx_frame_t frame;
     while (1) {
-        /* 从接收任务的队列拿一帧 */
-        if (xQueueReceive(frame_q, &frame, portMAX_DELAY) != pdTRUE)
+        //从接收任务的队列拿一帧
+        if (xQueueReceive(frame_q, &frame, portMAX_DELAY) != pdTRUE) continue;
+        //板A交互控制落盘操作
+        if (g_stop_writing == true){
+            if (g_fp_a) { fflush(g_fp_a); fsync(fileno(g_fp_a)); }
+            if (g_fp_b) { fflush(g_fp_b); fsync(fileno(g_fp_b)); }
+            B_state.safe_power_off = 1;
             continue;
+        }
 
         /* 解析：把原始帧拆成 头结构 + 光谱数组 */
         tf_save_msg_t hdr = {0};
@@ -362,27 +307,121 @@ static void data_process_save_task(void *pvParameters)
             frame_no = ++g_fc_b;
         }
         if (!fp) continue;
-
+        
         /* 写一行 */
-        csv_write_row(fp, frame.channel, frame_no, &hdr,
-                      spec_buf, hdr.num_points);
+        csv_write_row(fp, frame.channel, frame_no, &hdr,spec_buf, hdr.num_points);
+        //将A通道的信息上报MQTT服务器
+        if (frame.channel == 0) {
+            static TickType_t last_send = 0;
 
+            TickType_t now = xTaskGetTickCount();
+            if ((now - last_send) >= pdMS_TO_TICKS(600)) {
+                last_send = now;
+
+                /* 覆盖式写入最新帧 */
+                mqtt_pkt_t mf;
+                mf.payload_len = frame.len;
+                memcpy(mf.payload, frame.data, frame.len);
+
+                xQueueOverwrite(mqtt_q, &mf);
+
+                /* 唤醒 MQTT 任务（如果已创建） */
+                if (mqtt_task_handle) {
+                    xTaskNotifyGive(mqtt_task_handle);
+                }
+            }
+        }
+
+        if((++total_frames % 50) == 0){
+            uint64_t total = 0, free_b = 0;
+            if (esp_vfs_fat_info(TF_MOUNT_POINT, &total, &free_b) == ESP_OK&& total > 0) {
+                B_state.storage_free_pct = (uint8_t)(free_b * 100 / total);
+                ESP_LOGI(TAG, "storage free = %u%%", B_state.storage_free_pct);
+            }
+        }
+        B_state.frame_count = total_frames;
         /* 每 10 帧 flush 一次，兼顾速度与掉电保护 */
         if ((frame_no % 10) == 0) {
             fflush(fp);
             fsync(fileno(fp));
         }
+    }
+}
+/*AT固件
+//MQTT上报任务
+static void mqtt_publish_task(void *arg)
+{
+    mqtt_pkt_t pkt;
+    char       cmd[96];
 
-        /* 每 50 帧打印一次进度 */
-        if ((frame_no % 50) == 1) {
-            ESP_LOGI(TAG, "ch=%c saved %" PRIu32 " frames (pts=%u)",
-                     (frame.channel == 0) ? 'A' : 'B',
-                     frame_no, hdr.num_points);
+    while (1) {
+        if (xQueueReceive(mqtt_q, &pkt, portMAX_DELAY) != pdTRUE)
+            continue;
+
+        //发 AT 命令头 
+        int n = snprintf(cmd, sizeof(cmd),
+                         "AT+MQTTPUB=%u,\"%s\",0,0,0,%u\r\n",
+                         ML307R_CONN_ID,
+                         MQTT_TOPIC_A,
+                         pkt.payload_len);
+        uart_write_bytes(ML307_UART_PORT, cmd, n);
+
+        //等 ">" 提示符
+        if (!at_wait_prompt('>', 1000)) {
+            ESP_LOGW(TAG, "no '>' prompt, drop frame %" PRIu32 " pkt %u/%u",
+                     pkt.frame_no, pkt.pkt_idx + 1, pkt.total_pkts);
+            uart_flush_input(ML307_UART_PORT);
+            continue;
+        }
+        //发二进制 payload（不等 OK）
+        uart_write_bytes(ML307_UART_PORT, pkt.payload, pkt.payload_len);
+        static uint32_t sent_cnt = 0;
+        //每5包清空一次rx缓冲
+        if (++sent_cnt >= 5) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+            uart_flush_input(ML307_UART_PORT);
+            sent_cnt = 0;
+        }
+    }
+}*/
+
+
+//DTU固件
+void mqtt_publish_task(void *arg)
+{
+    mqtt_task_handle = xTaskGetCurrentTaskHandle();
+    mqtt_pkt_t mf;
+
+    while (1) {
+        /* 挂起等待通知（无限期阻塞，不占 CPU） */
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        /* 取最新帧（覆盖模式队列，拿到的一定是最新的） */
+        if (xQueueReceive(mqtt_q, &mf, 0) != pdTRUE) {
+            continue;
+        }
+
+        /* 透传：直接写原始字节到 UART */
+        int written = uart_write_bytes(ML307_UART_PORT, mf.payload, mf.payload_len);
+        if (written != mf.payload_len) {
+            ESP_LOGW("ML307R", "uart_write_bytes: %d/%u", written, mf.payload_len);
         }
     }
 }
 
 void app_main(void)
 {
-    //创建SC16IS752串口轮询采集任务
+    main_init();
+    //创建board_A通信双任务
+    xTaskCreate(boardA_interaction_task,"boardA_rx",2048,NULL,8,NULL);
+    //创建心跳上报任务
+    xTaskCreate(boardA_heartbeat_task,"boardA_hb",1024,NULL,3,NULL);
+    //创建光谱采集任务
+    if(SC16IS752_init_flag){
+        xTaskCreate(SC16IS752_data_get_task,"boardA_rx",4096,NULL,7,NULL);
+    }else{
+        ESP_LOGE(TAG,"SC16IS752初始化失败");
+    }
+    ml307_uart_init();
+    xTaskCreate(mqtt_publish_task,"mqtt_tx",2048,NULL,5,NULL);
 }

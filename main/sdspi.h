@@ -5,6 +5,8 @@
 #include <driver/gpio.h>
 #include <driver/spi_master.h>
 
+#include "sc16is752.h"
+
 #define TF_PIN_CS       GPIO_NUM_5   // CS (片选引脚)
 #define TF_PIN_MOSI     GPIO_NUM_7   // MOSI (主出从入)
 #define TF_PIN_CLK      GPIO_NUM_6   // CLK (时钟)
